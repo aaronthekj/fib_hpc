@@ -50,7 +50,7 @@ int main() {
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     // 4. Telemetry-Bounded Fast Doubling Loop
-    uint64_t target_index = 1; 
+    int doublings = 0; 
     
     while (1) {
         struct timespec step_start;
@@ -58,7 +58,7 @@ int main() {
         
         // Execute the exact $O(N \log N)$ mathematical block
         fast_doubling_step(&f_k, &f_k_plus_1, &workspace_a, &workspace_b);
-        target_index *= 2; // Jump F_k to F_{2k} analytically
+        doublings++; // Track exact mathematical recursion depth
 
         clock_gettime(CLOCK_MONOTONIC, &current);
         double elapsed_ms = get_elapsed_ms(start, current);
@@ -74,7 +74,7 @@ int main() {
         }
     }
     
-    printf("\n[+] SUCCESS! Reached massive identity F_%llu strictly within competitive bounds.\n", (unsigned long long)target_index);
+    printf("\n[+] SUCCESS! Reached massive identity F_(2^%d) strictly within competitive bounds.\n", doublings);
     printf("    Final Sequence Digits Payload Capacity: %zu 32-bit limbs.\n", f_k.length);
 
     // Cleanup phase 
