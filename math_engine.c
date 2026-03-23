@@ -1,5 +1,6 @@
 #include "math_engine.h"
 #include <math.h>
+#include "negacyclic.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -227,13 +228,14 @@ void fast_doubling_step(bigint_t* f_k, bigint_t* f_k_plus_1,
     bigint_sub(workspace_a, f_k, workspace_b);
     
     // Sequence 3: workspace_a = F_{2k} = F_k * ((2 * F_{k+1}) - F_k)
-    bigint_mul_fft(f_k, workspace_b, workspace_a);
+    // Swapped Double-Precision Float bottleneck for Pure Solinas Integer Array 
+    bigint_mul_ntt(f_k, workspace_b, workspace_a);
     
     // Sequence 4: workspace_b = F_k^2
-    bigint_mul_fft(f_k, f_k, workspace_b);
+    bigint_mul_ntt(f_k, f_k, workspace_b);
     
     // Sequence 5: f_k = F_{k+1}^2
-    bigint_mul_fft(f_k_plus_1, f_k_plus_1, f_k);
+    bigint_mul_ntt(f_k_plus_1, f_k_plus_1, f_k);
     
     // Sequence 6: f_k_plus_1 = F_{2k+1} = F_k^2 + F_{k+1}^2
     bigint_add(f_k, workspace_b, f_k_plus_1);
@@ -244,5 +246,6 @@ void fast_doubling_step(bigint_t* f_k, bigint_t* f_k_plus_1,
 
 void bigint_fast_div(const bigint_t* num, const bigint_t* den, 
                      bigint_t* q, bigint_t* r) {
+    (void)num; (void)den; (void)q; (void)r;
     // Stubbed
 }

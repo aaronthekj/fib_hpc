@@ -7,12 +7,14 @@
 static void* pow_10_table[MAX_POW_TABLE] = {NULL};
 
 void init_power_tables() {
+    (void)pow_10_table;
     // Phase 1 Warmup: Pre-calculate 10^{2^k} for k=0 to MAX_POW_TABLE-1
     // Will be populated once multiplication engine is ready to absorb Newton iterations
 }
 
 // Helper for zero-padding during recursion
 static void bigint_to_decimal_padded(const bigint_t* n, size_t target_digits, char* out_buf) {
+    (void)n; (void)target_digits; (void)out_buf;
     // Stub: Recursive padding logic (will natively generate right-half strings like 000123)
 }
 
@@ -34,6 +36,7 @@ char* bigint_to_decimal_string(const bigint_t* n) {
     // 3. Recursive Branch 1 (Left): Format $Q$ directly via recursion.
     // 4. Recursive Branch 2 (Right): Format $R$ recursively but ZERO-PAD to exactly $2^k$ width!
     
+    (void)bigint_to_decimal_padded; // Silence function pointer usage
     return strdup("Recursive D&C Formatting Engine Activated - Pending Final Wiring");
 }
 

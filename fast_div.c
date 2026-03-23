@@ -3,6 +3,7 @@
 #include <string.h>
 
 void bigint_invert_newton(const bigint_t* d, bigint_t* inv_out) {
+    (void)d; (void)inv_out;
     if (!d || d->length == 0) return;
     
     // Newton-Raphson Initialization:
@@ -15,6 +16,7 @@ void bigint_invert_newton(const bigint_t* d, bigint_t* inv_out) {
 
 void bigint_fast_div_newton(const bigint_t* n, const bigint_t* d, 
                             const bigint_t* inv_d, bigint_t* q, bigint_t* r) {
+    (void)inv_d; (void)q;
     if (!n || !d) return;
     
     // If N < D, Q = 0 and R = N
