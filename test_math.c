@@ -3,10 +3,7 @@
 #include <assert.h>
 #include <string.h>
 
-#include "config.h"
-#include "math_engine.h"
-#include "formatting.h"
-#include "solinas.h"
+#include "bigint.h"
 
 // Reference O(N^2) schoolbook multiplication to strictly verify FFT accuracy
 void bigint_mul_schoolbook(const bigint_t* a, const bigint_t* b, bigint_t* dest) {
@@ -81,30 +78,7 @@ int main() {
     }
     
     printf("[+] Test 1 Passed! FFT correctly handles internal 11-bit carry propagation!\n");
-    
-    printf("\n[*] Initializing Solinas Modular Reduction Verification...\n");
-    uint64_t s_a = 0xFFFFFFFFFFFFFFFFULL;
-    uint64_t s_b = 0x1234567890ABCDEFULL;
-    
-    uint64_t mod_a = s_a % SOLINAS_P1;
-    uint64_t mod_b = s_b % SOLINAS_P1;
-    
-    uint64_t expected_add = (mod_a + mod_b) % SOLINAS_P1;
-    uint64_t actual_add = solinas_add_p1(mod_a, mod_b);
-    
-    printf("[*] Verifying Solinas Addition...\n");
-    assert(expected_add == actual_add);
-    
-    unsigned __int128 expected_mul_128 = ((unsigned __int128)mod_a * mod_b) % SOLINAS_P1;
-    uint64_t actual_mul = solinas_mul_p1(mod_a, mod_b);
-    
-    printf("[*] Verifying Solinas Multiplication...\n");
-    if ((uint64_t)expected_mul_128 != actual_mul) {
-        printf("MISMATCH: Expected %llx, Got %llx\n", (unsigned long long)expected_mul_128, (unsigned long long)actual_mul);
-        assert(0);
-    }
-    
-    printf("[+] Test 2 Passed! Solinas Shift-Add Reductions are mathematically exact!\n");
+    printf("\n[+] All Math Engine Tests Successfully Verified.\n");
     
     printf("\n[+] All Math Engine Tests Successfully Verified.\n");
     return 0;

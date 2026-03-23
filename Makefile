@@ -5,22 +5,19 @@ LDFLAGS = -flto -lm
 TARGET = fib
 TEST_TARGET = test_math
 
-SRCS = main.c formatting.c math_engine.c bigint_ops.c fast_div.c negacyclic.c
+SRCS = main.c bigint.c
 OBJS = $(SRCS:.c=.o)
 
-TEST_SRCS = test_math.c formatting.c math_engine.c bigint_ops.c fast_div.c negacyclic.c
+TEST_SRCS = test_math.c bigint.c
 TEST_OBJS = $(TEST_SRCS:.c=.o)
 
 all: $(TARGET) $(TEST_TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 $(TEST_TARGET): $(TEST_OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 clean:
-	rm -f $(OBJS) $(TEST_OBJS) $(TARGET) $(TEST_TARGET)
+	rm -f *.o $(TARGET) $(TEST_TARGET)

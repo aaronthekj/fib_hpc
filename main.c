@@ -3,10 +3,7 @@
 #include <time.h>
 #include <string.h>
 
-#include "config.h"
-#include "math_engine.h"
-#include "formatting.h"
-#include "bigint_ops.h"
+#include "bigint.h"
 
 // Massive 64-byte aligned bounds pre-allocated to safely absorb scaling (e.g., F_100,000,000)
 #define MAX_EXPECTED_LIMBS 10000000 
@@ -40,7 +37,6 @@ int main() {
     
     // 2. Cycle-Accurate CPU Warm-Up Protocol
     printf("[*] Executing Execution Unit (EU) & ILP Warm-Up Blocks...\n");
-    init_power_tables();
     // Dry-run the sequence solely to saturate the Instruction Cache and prime Branch Predictors
     fast_doubling_step(&f_k, &f_k_plus_1, &workspace_a, &workspace_b);
     
