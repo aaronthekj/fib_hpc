@@ -24,5 +24,12 @@ void bigint_shift_left_1(const bigint_t* a, bigint_t* dest);
 void bigint_mul_fft(const bigint_t* a, const bigint_t* b, bigint_t* dest);
 void bigint_mul_ntt(const bigint_t* a, const bigint_t* b, bigint_t* dest);
 
+typedef struct {
+    bigint_t* e0;
+    bigint_t* e1;
+} clifford_vec_t;
+
+void fused_clifford_doubling_step(const clifford_vec_t* vk, clifford_vec_t* vk_next);
+
 void fast_doubling_step(const bigint_t* f_k, const bigint_t* f_k_plus_1, bigint_t* workspace_a, bigint_t* workspace_b);
 char* bigint_to_decimal_string(const bigint_t* num);

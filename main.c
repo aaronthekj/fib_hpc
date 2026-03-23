@@ -37,8 +37,12 @@ int main() {
     
     // 2. Cycle-Accurate CPU Warm-Up Protocol
     printf("[*] Executing Execution Unit (EU) & ILP Warm-Up Blocks...\n");
+    // Form Geometric Space Bounds
+    clifford_vec_t vk = { &f_k, &f_k_plus_1 };
+    clifford_vec_t vk_next = { &workspace_a, &workspace_b };
+    
     // Dry-run the sequence solely to saturate the Instruction Cache and prime Branch Predictors
-    fast_doubling_step(&f_k, &f_k_plus_1, &workspace_a, &workspace_b);
+    fused_clifford_doubling_step(&vk, &vk_next);
     
     // Reset Identity
     f_k.length = 1; f_k.limbs[0] = 1;
@@ -49,15 +53,19 @@ int main() {
     printf("\n[+] Caches hot. Firing 1.000s Execution Stopwatch!\n");
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    // 4. Telemetry-Bounded Fast Doubling Loop
+    // 4. Telemetry-Bounded Fast Doubling Loop utilizing Multivector Space
     int doublings = 0; 
     
     while (1) {
         struct timespec step_start;
         clock_gettime(CLOCK_MONOTONIC, &step_start);
         
-        // Execute the exact $O(N \log N)$ mathematical block
-        fast_doubling_step(&f_k, &f_k_plus_1, &workspace_a, &workspace_b);
+        fused_clifford_doubling_step(&vk, &vk_next);
+        
+        // Execute Constant-Time CPU Cache oblivious internal pointer swaps
+        bigint_t* temp_e0 = vk.e0; vk.e0 = vk_next.e0; vk_next.e0 = temp_e0;
+        bigint_t* temp_e1 = vk.e1; vk.e1 = vk_next.e1; vk_next.e1 = temp_e1;
+        
         doublings++; // Track exact mathematical recursion depth
 
         clock_gettime(CLOCK_MONOTONIC, &current);

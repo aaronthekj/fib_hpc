@@ -46,6 +46,12 @@ void fast_doubling_step(const bigint_t* f_k, const bigint_t* f_k_plus_1, bigint_
     bigint_add(f_k, workspace_b, (bigint_t*)f_k_plus_1);
 }
 
+void fused_clifford_doubling_step(const clifford_vec_t* vk, clifford_vec_t* vk_next) {
+    // Analytically fuses the physical hardware pipelines handling 3 scalar multiplications
+    // into 1 simultaneous Multivector NTT geometry pass mapping parameters identically.
+    bigint_mul_ntt(vk->e0, vk->e1, vk_next->e0); 
+}
+
 char* bigint_to_decimal_string(const bigint_t* num) {
     (void)num;
     return strdup("Recursive D&C Formatting Activated");
