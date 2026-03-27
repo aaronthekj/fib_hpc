@@ -1,35 +1,97 @@
-#pragma once
+#ifndef BIGINT_H
+#define BIGINT_H
+
+#define _POSIX_C_SOURCE 200809L
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
-#define MAX_EXPECTED_LIMBS 10000000
-typedef uint32_t limb_t;
+#include <pthread.h>
+#include "common.h"
+#include "constants.h"
+#include "arena.h"
 
 typedef struct {
-    uint32_t* limbs;
+    [[deprecated("Use LimbView + Scoped Arena instead")]] uint32_t *limbs; 
     size_t length;
     size_t capacity;
 } bigint_t;
 
-typedef struct { double real, imag; } complex_t;
-
-void bigint_init(bigint_t* num, size_t capacity);
-void bigint_copy(bigint_t* dest, const bigint_t* src);
-
-void bigint_add(const bigint_t* a, const bigint_t* b, bigint_t* dest);
-void bigint_sub(const bigint_t* a, const bigint_t* b, bigint_t* dest);
-void bigint_shift_left_1(const bigint_t* a, bigint_t* dest);
-
-void bigint_mul_fft(const bigint_t* a, const bigint_t* b, bigint_t* dest);
-void bigint_mul_ntt(const bigint_t* a, const bigint_t* b, bigint_t* dest);
+/* ... task types ... */
+typedef enum {
+    TASK_NONE = 0,
+    TASK_NTT_STOCKHAM,
+    TASK_POINTWISE_MUL
+} task_type_t;
 
 typedef struct {
-    bigint_t* e0;
-    bigint_t* e1;
-} clifford_vec_t;
+    task_type_t type;
+    uint64_t *a;
+    const uint64_t *b;
+    const uint64_t *c;
+    size_t n;
+    int inv;
+    int mod_idx;
+} task_t;
 
-void fused_clifford_doubling_step(const clifford_vec_t* vk, clifford_vec_t* vk_next);
+typedef struct {
+    void (*func)(void*);
+    void* arg;
+} fib_task_t;
 
-void fast_doubling_step(const bigint_t* f_k, const bigint_t* f_k_plus_1, bigint_t* workspace_a, bigint_t* workspace_b);
-char* bigint_to_decimal_string(const bigint_t* num);
+typedef struct {
+    char messages[1024][256];
+    size_t head, tail;
+    pthread_mutex_t mtx;
+} fib_telemetry_t;
+
+typedef struct {
+    pthread_t* workers;
+    size_t num_workers;
+    fib_task_t* queue;
+    size_t q_head, q_tail, q_count, q_cap;
+    size_t running_count;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    pthread_cond_t idle;
+    int shut;
+    uint64_t* twiddles[4];
+    size_t twiddle_size;
+    uint32_t flags;
+    fib_telemetry_t tel;
+} fib_ctx_t;
+
+/* Phase 1 Operations */
+[[nodiscard]] static inline bool is_little_endian(void) {
+    uint32_t x = 1;
+    return *(uint8_t*)&x == 1;
+}
+
+LimbView view_create(uint64_t* ptr, size_t len);
+void garner_4p(uint64_t out[4], uint64_t r[4]);
+void fib_ctx_dispatch(fib_ctx_t* ctx, void (*f)(void*), void* arg);
+void fib_ctx_wait(fib_ctx_t* ctx);
+void ntt_precompute_twiddles(fib_ctx_t* ctx, size_t n);
+void ntt_stable_scoped(LimbView v, int inv, fib_ctx_t* ctx, int m_idx);
+uint64_t mod_pow(uint64_t base, uint64_t exp, uint64_t mod);
+void bigint_mul_scalar(LimbView* res, ConstLimbView a, ConstLimbView b);
+
+/* Scoped Arena Operations */
+void bigint_add_scoped(LimbView* res, ConstLimbView a, ConstLimbView b);
+void bigint_sub_scoped(LimbView* res, ConstLimbView a, ConstLimbView b);
+void bigint_mul_scoped(LimbView* res, ConstLimbView a, ConstLimbView b, arena_t* arena, fib_ctx_t* ctx);
+void bigint_mul_ssa(LimbView* res, ConstLimbView a, ConstLimbView b, arena_t* q);
+
+/* Lifecycle */
+fib_ctx_t* fib_ctx_create(size_t n_max);
+void fib_ctx_destroy(fib_ctx_t* ctx);
+
+/* Benchmarking */
+typedef struct {
+    double ntt_time;
+    double ladder_time;
+    double verify_time;
+} fib_stats_t;
+
+int fib_race(fib_ctx_t* ctx, unsigned long long N, bigint_t* res, fib_stats_t* stats);
+
+#endif

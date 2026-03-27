@@ -1,0 +1,11 @@
+.cache/
+.vscode/
+build/
+*.o
+fib
+test_*
+Antigravity Implementation Plan.pdf
+omp_test.c
+test_ntt_isolation
+test_ssa
+test_ssa_large

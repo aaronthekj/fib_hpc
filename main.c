@@ -1,95 +1,134 @@
+#define _DARWIN_C_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <string.h>
-
+#include <time.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <getopt.h>
+#include <pthread.h>
 #include "bigint.h"
+#include "arena.h"
+#include "error.h"
 
-// Massive 64-byte aligned bounds pre-allocated to safely absorb scaling (e.g., F_100,000,000)
-#define MAX_EXPECTED_LIMBS 10000000 
+static int g_safe_mode = 0;
+static int g_turbo_mode = 0;
+static int g_json_log = 0;
+static int g_telemetry = 0;
+static int g_force = 0;
+static long g_threads = 1;
+static double g_max_ram_gb = 0;
 
-// Hardware resolution telemetry helper
-static double get_elapsed_ms(struct timespec start, struct timespec end) {
-    return (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
+void watchdog_handler(int sig) {
+    (void)sig;
+    PANIC("WATCHDOG: Strict execution hard-stop triggered (1.5x time limit).");
 }
 
-int main() {
-    printf("[*] Initializing fib_hpc Aligned Allocators & Telemetry Shell...\n");
-    
-    // 1. Static Buffer Pre-Allocation (ZERO dynamic allocation during loop execution)
-    bigint_t f_k, f_k_plus_1, workspace_a, workspace_b;
-    
-    f_k.capacity = MAX_EXPECTED_LIMBS;
-    f_k.limbs = aligned_alloc(64, MAX_EXPECTED_LIMBS * sizeof(limb_t));
-    f_k.length = 1; f_k.limbs[0] = 1; // F(1) = 1
-    
-    f_k_plus_1.capacity = MAX_EXPECTED_LIMBS;
-    f_k_plus_1.limbs = aligned_alloc(64, MAX_EXPECTED_LIMBS * sizeof(limb_t));
-    f_k_plus_1.length = 1; f_k_plus_1.limbs[0] = 1; // F(2) = 1
-    
-    workspace_a.capacity = MAX_EXPECTED_LIMBS;
-    workspace_a.limbs = aligned_alloc(64, MAX_EXPECTED_LIMBS * sizeof(limb_t));
-    workspace_a.length = 0;
-    
-    workspace_b.capacity = MAX_EXPECTED_LIMBS;
-    workspace_b.limbs = aligned_alloc(64, MAX_EXPECTED_LIMBS * sizeof(limb_t));
-    workspace_b.length = 0;
-    
-    // 2. Cycle-Accurate CPU Warm-Up Protocol
-    printf("[*] Executing Execution Unit (EU) & ILP Warm-Up Blocks...\n");
-    // Form Geometric Space Bounds
-    clifford_vec_t vk = { &f_k, &f_k_plus_1 };
-    clifford_vec_t vk_next = { &workspace_a, &workspace_b };
-    
-    // Dry-run the sequence solely to saturate the Instruction Cache and prime Branch Predictors
-    fused_clifford_doubling_step(&vk, &vk_next);
-    
-    // Reset Identity
-    f_k.length = 1; f_k.limbs[0] = 1;
-    f_k_plus_1.length = 1; f_k_plus_1.limbs[0] = 1;
-    
-    // 3. Strict Stopwatch Kickoff
-    struct timespec start, current;
-    printf("\n[+] Caches hot. Firing 1.000s Execution Stopwatch!\n");
-    clock_gettime(CLOCK_MONOTONIC, &start);
+void validate_resources() {
+    int nprocs;
+    size_t len = sizeof(nprocs);
+    if (sysctlbyname("hw.logicalcpu", &nprocs, &len, NULL, 0) < 0) PANIC("sysctl failed to get CPU info");
+    if (g_threads > nprocs) PANIC("Thread count %ld exceeds system maximum %d.", g_threads, nprocs);
 
-    // 4. Telemetry-Bounded Fast Doubling Loop utilizing Multivector Space
-    int doublings = 0; 
-    
-    while (1) {
-        struct timespec step_start;
-        clock_gettime(CLOCK_MONOTONIC, &step_start);
-        
-        fused_clifford_doubling_step(&vk, &vk_next);
-        
-        // Execute Constant-Time CPU Cache oblivious internal pointer swaps
-        bigint_t* temp_e0 = vk.e0; vk.e0 = vk_next.e0; vk_next.e0 = temp_e0;
-        bigint_t* temp_e1 = vk.e1; vk.e1 = vk_next.e1; vk_next.e1 = temp_e1;
-        
-        doublings++; // Track exact mathematical recursion depth
+    uint64_t mem_size;
+    len = sizeof(mem_size);
+    if (sysctlbyname("hw.memsize", &mem_size, &len, NULL, 0) < 0) PANIC("sysctl failed to get RAM info");
+    double phys_ram_gb = (double)mem_size / (1024.0 * 1024.0 * 1024.0);
 
-        clock_gettime(CLOCK_MONOTONIC, &current);
-        double elapsed_ms = get_elapsed_ms(start, current);
-        double current_step_ms = get_elapsed_ms(step_start, current);
-        
-        // Adaptive Heartbeat Evaluator: 800ms logic limit
-        // Next step is O(M(2n)). FFT scales roughly by 2.2x factor per sequence bounds.
-        // We pad with exactly 2.5x to guarantee absolute mathematical safety.
-        if (elapsed_ms >= 800.0 || (1000.0 - elapsed_ms) < (current_step_ms * 2.5)) {
-            printf("\n[!] TELEMETRY WALL: Projected multiplication step exceeds remaining millisecond safety cap.\n");
-            printf("[!] Adaptive Break physically triggered at %f ms.\n", elapsed_ms);
-            break;
+    if (g_max_ram_gb > phys_ram_gb * 0.9 && !g_force) {
+        PANIC("Requested RAM %.2f GB > 90%% of physical memory (%.2f GB). Use --force to override.", g_max_ram_gb, phys_ram_gb);
+    }
+}
+
+void* logging_thread(void* arg) {
+    fib_ctx_t* ctx = (fib_ctx_t*)arg;
+    while (!ctx->shut) {
+        pthread_mutex_lock(&ctx->tel.mtx);
+        while (ctx->tel.head != ctx->tel.tail) {
+            if (g_json_log) {
+                printf("{\"telemetry\": \"%s\"}\n", ctx->tel.messages[ctx->tel.tail]);
+            } else {
+                printf("[TELEMETRY] %s\n", ctx->tel.messages[ctx->tel.tail]);
+            }
+            ctx->tel.tail = (ctx->tel.tail + 1) % 1024;
+        }
+        pthread_mutex_unlock(&ctx->tel.mtx);
+        usleep(100000);
+    }
+    return NULL;
+}
+
+int main(int argc, char** argv) {
+    static struct option long_options[] = {
+        {"safe", no_argument, &g_safe_mode, 1},
+        {"turbo", no_argument, &g_turbo_mode, 1},
+        {"json-log", no_argument, &g_json_log, 1},
+        {"telemetry", no_argument, &g_telemetry, 1},
+        {"force", no_argument, &g_force, 1},
+        {"threads", required_argument, 0, 't'},
+        {"max-ram", required_argument, 0, 'r'},
+        {0, 0, 0, 0}
+    };
+
+    int opt;
+    while ((opt = getopt_long(argc, argv, "t:r:", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 't': g_threads = atol(optarg); break;
+            case 'r': g_max_ram_gb = atof(optarg); break;
         }
     }
-    
-    printf("\n[+] SUCCESS! Reached massive identity F_(2^%d) strictly within competitive bounds.\n", doublings);
-    printf("    Final Sequence Digits Payload Capacity: %zu 32-bit limbs.\n", f_k.length);
 
-    // Cleanup phase 
-    free(f_k.limbs);
-    free(f_k_plus_1.limbs);
-    free(workspace_a.limbs);
-    free(workspace_b.limbs);
+    if (optind >= argc) {
+        printf("Usage: %s <time_limit_sec> [--safe|--turbo] [--threads=N] [--max-ram=G] [--telemetry] [--json-log] [--force]\n", argv[0]);
+        return 1;
+    }
 
+    double time_limit = atof(argv[optind]);
+    if (time_limit <= 0) PANIC("Strict I/O: time_limit must be > 0.");
+
+    unsigned long long N = 42;
+    if (optind + 1 < argc) {
+        N = strtoull(argv[optind + 1], NULL, 10);
+    }
+
+    validate_resources();
+    if (!is_little_endian()) PANIC("Antigravity HPC Requirement: Little-Endian architecture only.");
+
+    signal(SIGALRM, watchdog_handler);
+    alarm((unsigned int)(time_limit * 1.5));
+
+    if (g_safe_mode) printf("[STATUS] High-Reliability Mode enabled (Layer 3 Validation).\n");
+    if (g_turbo_mode) printf("[STATUS] High-Performance Mode enabled (Layer 1 Only).\n");
+
+    size_t arena_size = (g_max_ram_gb > 0) ? (size_t)(g_max_ram_gb * 1024 * 1024 * 1024) : (1024ULL * 1024 * 1024);
+    arena_t* main_arena = arena_create(arena_size);
+
+    fib_ctx_t* ctx = fib_ctx_create((size_t)g_threads);
+    ctx->flags = (g_turbo_mode ? 0x1 : 0) | (g_telemetry ? 0x2 : 0);
+    pthread_t log_tid;
+    pthread_create(&log_tid, NULL, logging_thread, ctx);
+
+    printf("[*] Universal HPC Engine Initialized. Threads: %ld, Arena: %.2f GB\n", g_threads, (double)arena_size / (1024.0*1024.0*1024.0));
+
+    bigint_t res_mock;
+    fib_stats_t stats = {0};
+    struct timespec start_ts, end_ts;
+    clock_gettime(CLOCK_MONOTONIC, &start_ts);
+    fib_race(ctx, N, &res_mock, &stats);
+    clock_gettime(CLOCK_MONOTONIC, &end_ts);
+    double total_time = (end_ts.tv_sec - start_ts.tv_sec) + (end_ts.tv_nsec - start_ts.tv_nsec) / 1e9;
+
+    printf("[RESULT] F(%llu) Calculation Complete.\n", N);
+    printf("[STATS] Wall-Clock Time: %.3f s\n", total_time);
+    printf("[STATS] Ladder Time: %.3f s\n", stats.ladder_time);
+    printf("[STATS] NTT Time: %.3f s\n", stats.ntt_time);
+
+    ctx->shut = 1;
+    pthread_join(log_tid, NULL);
+    fib_ctx_destroy(ctx);
+    arena_destroy(main_arena);
     return 0;
 }
